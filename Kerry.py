@@ -58,6 +58,8 @@ class BlackjackEnvironment:
     def reset(self):
             # Reset the environment to the initial state
             self.createDeck()
+            self.players_hand = []
+            self.dealers_hand = []
             pass
 
 def step(self, action):
@@ -82,8 +84,12 @@ def step(self, action):
     # Concatenate player's hand, dealer's face-up card, and the deck state
     state = np.concatenate([player_state, dealer_state, deck_state], axis=1)
 
-    # Now you can feed the state to the network
+    # Now feed the state to the network
     q_values = model(state, training=True)
+
+    action = 1
+
+    #TODO: add a loop to allow the network to hit as many times as it likes.
 
     # Epsilon-greedy policy for action selection
     if np.random.rand() <= epsilon:
@@ -95,6 +101,16 @@ def step(self, action):
     if action == 1:
         player_card = self.deal_card()
         self.players_hand.append(player_card)
+
+        # Reshape the hands for the next state after hitting
+        next_player_state = np.reshape(self.players_hand, [1, state_size])
+        next_dealer_state = np.reshape(self.dealers_hand, [1, state_size])  # Updated to include the entire dealer's hand
+
+        # Reshape the deck state for the next state
+        next_deck_state = np.reshape(self.deck, [1, 52])
+
+        # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
+        next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
 
         if self.calculate_hand_value(self.players_hand) > 21:
             reward = -1
@@ -108,35 +124,24 @@ def step(self, action):
             dealer_card = self.deal_card()
             self.dealers_hand.append(dealer_card)
 
+        # Reshape the hands for the next state after the dealer hits
+        next_player_state = np.reshape(self.players_hand, [1, state_size])
+        next_dealer_state = np.reshape(self.dealers_hand, [1, state_size])
+
+        # Reshape the deck state for the next state
+        next_deck_state = np.reshape(self.deck, [1, 52])
+
+        # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
+        next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
+
         reward = self.determine_winner()
 
-    # Reshape the hands for the next state
-    next_player_state = np.reshape(self.players_hand, [1, state_size])
-    next_dealer_state = np.reshape([self.dealers_hand[0]], [1, state_size])
-
-    # Reshape the deck state for the next state
-    next_deck_state = np.reshape(self.deck, [1, deck_size])
-
-    # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
-    next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
-
     return next_state, reward, done
-
-
-
-# Define the Q-network architecture
-class QNetwork(tf.keras.Model):
-    def __init__(self, state_size, action_size):
-        super(QNetwork, self).__init__()
-        # Define neural network layers here
-
-    def call(self, state):
-        # Define the forward pass
-        pass
 
 # Hyperparameters
 state_size = 21  # Change this based on state representation
 action_size = 2  # 0 for 'stick', 1 for 'hit'
+deck_size = 52
 learning_rate = 0.001
 discount_factor = 0.99
 epsilon_initial = 1.0
@@ -145,9 +150,22 @@ epsilon_min = 0.01
 batch_size = 32
 num_episodes = 10000
 
-# Initialize environment and Q-network
+# Our Network
+class QNetwork(tf.keras.Model):
+    def __init__(self, state_size, action_size, deck_size):
+        super(QNetwork, self).__init__()
+        self.dense1 = tf.keras.layers.Dense(64, activation='relu', input_shape=(state_size + deck_size,))
+        self.dense2 = tf.keras.layers.Dense(32, activation='relu')
+        self.dense3 = tf.keras.layers.Dense(action_size)
+
+    def call(self, state):
+        x = self.dense1(state)
+        x = self.dense2(x)
+        return self.dense3(x)
+
+# Initialize environment network
 env = BlackjackEnvironment()
-model = QNetwork(state_size, action_size)
+model = QNetwork(state_size, action_size, deck_size)
 optimizer = tf.keras.optimizers.Adam(learning_rate)
 huber_loss = tf.keras.losses.Huber()
 
