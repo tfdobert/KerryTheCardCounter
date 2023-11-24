@@ -60,50 +60,82 @@ class BlackjackEnvironment:
             self.createDeck()
             pass
 
-    def step(self, action):
-        # Inital turn parameters
-        players_total = 0
-        dealers_total = 0
-        
-        # Action: 0 for 'stand', 1 for 'hit'
-        if action == 1:
-            # Agent chooses to hit, deal a card to agent
-            player_card = self.deal_card()
-            self.player_hand.append(player_card)
+def step(self, action):
+    # Initial turn parameters
+    players_total = 0
+    dealers_total = 0
 
-            # Check if the player busts
-            if self.calculate_hand_value(self.player_hand) > 21:
-                reward = -1  # Player busts, receives a negative reward
-                done = True
-            else:
-                reward = 0  # No bust, continue the game
-                done = False
-        else:
-            # If the agent chooses to stick, play out the dealer's turn
+    # Deal two cards for each player
+    self.dealers_hand.append(self.deal_card())        
+    self.dealers_hand.append(self.deal_card())
+
+    self.players_hand.append(self.deal_card())
+    self.players_hand.append(self.deal_card())
+
+    # Reshape hands for the neural network input
+    player_state = np.reshape(self.players_hand, [1, state_size])
+    dealer_state = np.reshape([self.dealers_hand[0]], [1, state_size])
+
+    # Reshape the deck state
+    deck_state = np.reshape(self.deck, [1, 52])
+
+    # Concatenate player's hand, dealer's face-up card, and the deck state
+    state = np.concatenate([player_state, dealer_state, deck_state], axis=1)
+
+    # Now you can feed the state to the network
+    q_values = model(state, training=True)
+
+    # Epsilon-greedy policy for action selection
+    if np.random.rand() <= epsilon:
+        action = np.random.choice(action_size)
+    else:
+        action = np.argmax(q_values[0])
+
+    # Take the chosen action
+    if action == 1:
+        player_card = self.deal_card()
+        self.players_hand.append(player_card)
+
+        if self.calculate_hand_value(self.players_hand) > 21:
+            reward = -1
             done = True
-            while self.calculate_hand_value(self.dealer_hand) < 17: # Dealers typically only hit on a 16 or lower
-                dealer_card = self.deal_card()
-                self.dealer_hand.append(dealer_card)
+        else:
+            reward = 0
+            done = False
+    else:
+        done = True
+        while self.calculate_hand_value(self.dealers_hand) < 17:
+            dealer_card = self.deal_card()
+            self.dealers_hand.append(dealer_card)
 
-            # Determine the winner
-            reward = self.determine_winner()
+        reward = self.determine_winner()
 
-        # Return the new state (player's hand, dealer's face-up card), reward, and whether the episode is done
-        return (self.player_hand, self.dealer_hand[0]), reward, done
-        pass
+    # Reshape the hands for the next state
+    next_player_state = np.reshape(self.players_hand, [1, state_size])
+    next_dealer_state = np.reshape([self.dealers_hand[0]], [1, state_size])
+
+    # Reshape the deck state for the next state
+    next_deck_state = np.reshape(self.deck, [1, deck_size])
+
+    # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
+    next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
+
+    return next_state, reward, done
+
+
 
 # Define the Q-network architecture
 class QNetwork(tf.keras.Model):
     def __init__(self, state_size, action_size):
         super(QNetwork, self).__init__()
-        # Define your neural network layers here
+        # Define neural network layers here
 
     def call(self, state):
-        # Define the forward pass of your neural network
+        # Define the forward pass
         pass
 
 # Hyperparameters
-state_size = 21  # Change this based on your state representation
+state_size = 21  # Change this based on state representation
 action_size = 2  # 0 for 'stick', 1 for 'hit'
 learning_rate = 0.001
 discount_factor = 0.99
@@ -128,7 +160,7 @@ for episode in range(num_episodes):
     total_reward = 0
 
     with tf.GradientTape() as tape:
-        for time in range(1000):  # You may adjust the maximum number of time steps
+        for time in range(1000): 
             # Epsilon-greedy policy for action selection
             if np.random.rand() <= epsilon:
                 action = np.random.choice(action_size)
