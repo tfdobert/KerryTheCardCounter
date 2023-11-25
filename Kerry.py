@@ -4,154 +4,126 @@ import numpy as np
 # Define the Blackjack environment
 
 class BlackjackEnvironment:
+    # All card properties must be represented in a numerical value so the network understands. Think matrices... 
     class Card:
         def __init__(self, card_id, value, face_value, hand, suit):
             self.id = card_id
-            self.played = False
-            self.value = value
-            self.face_value = face_value #such as suit or "jack". 
-            self.hand = hand # whose hand the card is in, 0 for none, 1 for Kerry 2 for dealer
-            self.hidden = False # We change this to true if it's a facedown card that Kerry cannot see
-            self.suit = suit # This is completely optional
+            self.played = 0  # 0 = false
+            self.value = value  # actual numerical value of the card (face cards have 11)
+            self.face_value = face_value  # -1 = jack -2 = queen -3 = king -4 = ace 
+            self.hand = 0  #  0 for none, 1 for Kerry 2 for dealer
+            self.suit = suit  # 0 = hearts 1 = diamonds 2 = clubs 3 = spades
 
-
-    # Creating a deck of cards
-    suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
-    face_cards = ['Jack', 'Queen', 'King','Ace']
     deck = []
+    deck_state = [[]]
+
     def __init__(self):
-        # Create the deck
-        self.createDeck()
-
-
-    def createDeck(self):
-        print("Creating Fresh Deck...")
-        self.deck = []
-        card_id = 1  # Starting ID for cards
-        for suit in self.suits:
-            for rank in range(2, 11):  # Numerical cards 2-10
-                card = self.Card(card_id, rank, str(rank), 0, suit)
-                self.deck.append(card)
-                card_id += 1
-
-            for face_card in self.face_cards:
-                card = self.Card(card_id, 10, face_card, 0, suit)
-                self.deck.append(card)
-                card_id += 1
-        pass
-    
-    def deal_card(self,hand):
-        # Deal a card from the deck
-        # Get the indices of the remaining cards that have not been played
-        remaining_indices = [i for i, (_, _, played) in enumerate(self.deck) if not played]
-
-        if not remaining_indices:
-            # If no remaining cards, initate episode end
-            self.reset()
-
-        # Randomly select an index from the remaining cards
-        selected_index = np.random.choice(remaining_indices)
-        
-        # Mark the selected card as played and which hand it is in
-        self.deck[selected_index] = (*self.deck[selected_index][:2], True)
-        self.deck[selected_index].hand = hand
-
-        # Return the entire selected card object
-        return self.deck[selected_index]
-
+        # Initially begin the reset process
+        self.reset()
 
     def reset(self):
         # Reset the environment to the initial state
-        self.createDeck()
-        self.players_hand = [0,0]
-        self.dealers_hand = [0,0]
+        self.deck = self.generate_deck()
 
-        # Reshape hands for the neural network input
-        player_state = np.reshape(self.players_hand, [1, state_size])
-        dealer_state = np.reshape([self.dealers_hand[0]], [1, state_size])
+        # Draw two cards for the dealer
+        dealer_card_1 = self.draw_card(self.deck)
+        dealer_card_2 = self.draw_card(self.deck)
 
-        # Reshape the deck state (assuming the deck is a list of 52 card objects)
-        deck_state = np.reshape(self.deck, [1, deck_size])
+        if dealer_card_1 is not None and dealer_card_2 is not None:
+            dealer_card_1.hand = 2
+            dealer_card_2.hand = 2
 
-        # Concatenate player's hand, dealer's face-up card, and the deck state
-        state = np.concatenate([player_state, dealer_state, deck_state], axis=1)
+        # Draw two cards for the player (network)
+        player_card_1 = self.draw_card(self.deck)
+        player_card_2 = self.draw_card(self.deck)
 
-        return state
+        if player_card_1 is not None and player_card_2 is not None:
+            player_card_1.hand = 1
+            player_card_2.hand = 1
 
-    def step(self, action):
-        # Initial turn parameters
-        dealers_hand = []
-        players_hand = []
-        players_total = 0
-        dealers_total = 0
+        # Update the deck state
+        self.deck_state = self.deck_to_2d_array(self.deck)
 
-        #TODO: hidden mechanic
+        # Return the updated state
+        return self.deck_state
 
-        # Deal two cards for each player
-        dealers_hand.append(self.deal_card(hand = 2))        
-        dealers_hand.append(self.deal_card(hand = 2))
+    # Generate the initial deck
+    def generate_deck(self):
+        deck = []
+        card_id = 0
+        for suit in range(4):
+            for value in range(2, 11):
+                card = self.Card(card_id, value, 0, 0, suit)
+                deck.append(card)
+                card_id += 1
+            for face_value in range(-1, -5, -1):
+                card = self.Card(card_id, 10, face_value, 0, suit)
+                deck.append(card)
+                card_id += 1
+        return deck
+    
+    # This is refitting the deck to comply with the network state
+    def deck_to_2d_array(self, deck):
+        array = np.zeros((52, 5), dtype=int)
+        for i, card in enumerate(deck):
+            array[i] = [card.id, card.played, card.value, card.face_value, card.suit]
+        return array
 
-        players_hand.append(self.deal_card(hand = 1))
-        players_hand.append(self.deal_card(hand = 1))
+    def draw_card(self, deck):
+        undealt_cards = [card for card in deck if not card.played]
+        if not undealt_cards:
+            # TODO: End episode here
+            print("No more cards to draw.")
+            return None
+        
+        drawn_card = np.random.choice(undealt_cards)
+        drawn_card.played = 1
+        return drawn_card
 
-        # Now feed the state to the network
-        q_values = model(state, training=True)
+def step(self, action):
+    # Action 0: Stand, Action 1: Hit
+    if action == 0:
+        # Player chooses to stand, let the dealer play
+        while self.get_hand_value(self.deck_state[:, 2]) < 17:  # Dealer hits until reaching 17
+            dealer_card = self.draw_card(self.deck)
+            if dealer_card is not None:
+                dealer_card.hand = 2
+                self.deck_state = self.deck_to_2d_array(self.deck)
+        
+        # Determine the winner
+        player_hand_value = self.get_hand_value(self.deck_state[:, 2])
+        dealer_hand_value = self.get_hand_value(self.deck_state[:, 2], dealer=True)
 
-        action = 1
-
-        #TODO: add a loop to allow the network to hit as many times as it likes.
-
-        # Epsilon-greedy policy for action selection
-        if np.random.rand() <= epsilon:
-            action = np.random.choice(action_size)
+        if player_hand_value > 21 or (dealer_hand_value <= 21 and dealer_hand_value >= player_hand_value):
+            reward = -1  # Player loses
+        elif dealer_hand_value > 21 or player_hand_value > dealer_hand_value:
+            reward = 1  # Player wins
         else:
-            action = np.argmax(q_values[0])
+            reward = 0  # It's a draw
 
-        # Take the chosen action
-        if action == 1:
-            player_card = self.deal_card()
-            self.players_hand.append(player_card)
+        done = True  # End the episode
 
-            # Reshape the hands for the next state after hitting
-            next_player_state = np.reshape(self.players_hand, [1, state_size])
-            next_dealer_state = np.reshape(self.dealers_hand, [1, state_size])  # Updated to include the entire dealer's hand
+    elif action == 1:
+        # Player chooses to hit
+        player_card = self.draw_card(self.deck)
+        if player_card is not None:
+            player_card.hand = 1
+            self.deck_state = self.deck_to_2d_array(self.deck)
 
-            # Reshape the deck state for the next state
-            next_deck_state = np.reshape(self.deck, [1, 52])
-
-            # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
-            next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
-
-            if self.calculate_hand_value(self.players_hand) > 21:
+            # Check if player busts
+            player_hand_value = self.get_hand_value(self.deck_state[:, 2])
+            if player_hand_value > 21:
                 reward = -1
-                done = True
+                done = True  # End the episode
             else:
-                reward = 0
+                reward = 0  # Continue the episode
                 done = False
-        else:
-            done = True
-            while self.calculate_hand_value(self.dealers_hand) < 17:
-                dealer_card = self.deal_card()
-                self.dealers_hand.append(dealer_card)
 
-            # Reshape the hands for the next state after the dealer hits
-            next_player_state = np.reshape(self.players_hand, [1, state_size])
-            next_dealer_state = np.reshape(self.dealers_hand, [1, state_size])
-
-            # Reshape the deck state for the next state
-            next_deck_state = np.reshape(self.deck, [1, 52])
-
-            # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
-            next_state = np.concatenate([next_player_state, next_dealer_state, next_deck_state], axis=1)
-
-            reward = self.determine_winner()
-
-        return next_state, reward, done
+    return self.deck_state, reward, done
 
 # Hyperparameters
-state_size = 52  # There will only ever be 52 cards
+state_size = 52 * 5  # Corrected state size based on the 2D array representation of card objects
 action_size = 2  # 0 for 'stand', 1 for 'hit'
-deck_size = 52
 learning_rate = 0.001
 discount_factor = 0.99
 epsilon_initial = 1.0
@@ -162,9 +134,9 @@ num_episodes = 10000
 
 # Our Network
 class QNetwork(tf.keras.Model):
-    def __init__(self, state_size, action_size, deck_size):
+    def __init__(self, state_size, action_size):
         super(QNetwork, self).__init__()
-        self.dense1 = tf.keras.layers.Dense(64, activation='relu', input_shape=(state_size + deck_size,))
+        self.dense1 = tf.keras.layers.Dense(64, activation='relu', input_shape=(state_size,))
         self.dense2 = tf.keras.layers.Dense(32, activation='relu')
         self.dense3 = tf.keras.layers.Dense(action_size)
 
@@ -175,7 +147,7 @@ class QNetwork(tf.keras.Model):
 
 # Initialize environment network
 env = BlackjackEnvironment()
-model = QNetwork(state_size, action_size, deck_size)
+model = QNetwork(state_size, action_size)
 optimizer = tf.keras.optimizers.Adam(learning_rate)
 huber_loss = tf.keras.losses.Huber()
 
@@ -184,7 +156,6 @@ epsilon = epsilon_initial
 
 for episode in range(num_episodes):
     state = env.reset()
-    state = np.reshape(state, [1, state_size])
     total_reward = 0
 
     with tf.GradientTape() as tape:
@@ -193,22 +164,21 @@ for episode in range(num_episodes):
             if np.random.rand() <= epsilon:
                 action = np.random.choice(action_size)
             else:
-                # Concatenate player's hand, dealer's face-up card, and the deck state
-                state_with_deck = np.concatenate([state, np.reshape(env.deck, [1, 52])], axis=1)
-                q_values = model(state_with_deck, training=True)
+                flat_state = state.flatten()  # Flatten the 2D array before feeding it to the model
+                q_values = model(np.reshape(flat_state, [1, state_size]), training=True)
                 action = np.argmax(q_values[0])
 
             next_state, reward, done = env.step(action)
             next_state = np.reshape(next_state, [1, state_size])
 
-            # Concatenate player's hand, dealer's face-up card, and the deck state for the next state
-            next_state_with_deck = np.concatenate([next_state, np.reshape(env.deck, [1, 52])], axis=1)
+            flat_state = state.flatten()  # Flatten the 2D array for the current state
+            next_state_with_deck = np.concatenate([next_state, np.reshape(env.deck_state, [1, state_size])], axis=1)
 
             total_reward += reward
 
             target = reward + discount_factor * np.max(model(next_state_with_deck, training=True)[0])
             with tape.stop_recording():
-                q_values = model(state_with_deck, training=True)
+                q_values = model(np.reshape(flat_state, [1, state_size]), training=True)
                 loss = huber_loss(target, q_values[0][action])
 
             grads = tape.gradient(loss, model.trainable_variables)
