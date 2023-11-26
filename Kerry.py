@@ -11,11 +11,16 @@ class BlackjackEnvironment:
             self.played = 0  # 0 = false
             self.value = value  # actual numerical value of the card (face cards have 11)
             self.face_value = face_value  # -1 = jack -2 = queen -3 = king -4 = ace 
-            self.hand = 0  #  0 for none, 1 for Kerry 2 for dealer
+            self.hand = hand  #  0 for none, 1 for Kerry 2 for dealer
             self.suit = suit  # 0 = hearts 1 = diamonds 2 = clubs 3 = spades
 
     deck = []
     deck_state = [[]]
+
+    # Current hands
+    dealers_hand = []
+    players_hand = []
+
 
     def __init__(self):
         # Initially begin the reset process
@@ -25,21 +30,17 @@ class BlackjackEnvironment:
         # Reset the environment to the initial state
         self.deck = self.generate_deck()
 
+        # Initialize dealer and player parameters
+        self.dealers_hand = []
+        self.players_hand = []
+
         # Draw two cards for the dealer
-        dealer_card_1 = self.draw_card(self.deck)
-        dealer_card_2 = self.draw_card(self.deck)
+        self.dealers_hand.append(self.draw_card(self.deck,2))
+        self.dealers_hand.append(self.draw_card(self.deck,2))
 
-        if dealer_card_1 is not None and dealer_card_2 is not None:
-            dealer_card_1.hand = 2
-            dealer_card_2.hand = 2
-
-        # Draw two cards for the player (network)
-        player_card_1 = self.draw_card(self.deck)
-        player_card_2 = self.draw_card(self.deck)
-
-        if player_card_1 is not None and player_card_2 is not None:
-            player_card_1.hand = 1
-            player_card_2.hand = 1
+        # Draw two cards for the player
+        self.players_hand.append(self.draw_card(self.deck,1))
+        self.players_hand.append(self.draw_card(self.deck,1))
 
         # Update the deck state
         self.deck_state = self.deck_to_2d_array(self.deck)
@@ -64,12 +65,12 @@ class BlackjackEnvironment:
     
     # This is refitting the deck to comply with the network state
     def deck_to_2d_array(self, deck):
-        array = np.zeros((52, 5), dtype=int)
+        array = np.zeros((52, 6), dtype=int)
         for i, card in enumerate(deck):
-            array[i] = [card.id, card.played, card.value, card.face_value, card.suit]
+            array[i] = [card.id, card.played, card.value, card.face_value, card.hand, card.suit]
         return array
 
-    def draw_card(self, deck):
+    def draw_card(self, deck, player):
         undealt_cards = [card for card in deck if not card.played]
         if not undealt_cards:
             # TODO: End episode here
@@ -78,48 +79,55 @@ class BlackjackEnvironment:
         
         drawn_card = np.random.choice(undealt_cards)
         drawn_card.played = 1
+        drawn_card.hand = player
         return drawn_card
 
-def step(self, action):
-    # Action 0: Stand, Action 1: Hit
-    if action == 0:
-        # Player chooses to stand, let the dealer play
-        while self.get_hand_value(self.deck_state[:, 2]) < 17:  # Dealer hits until reaching 17
-            dealer_card = self.draw_card(self.deck)
-            if dealer_card is not None:
-                dealer_card.hand = 2
-                self.deck_state = self.deck_to_2d_array(self.deck)
+    def step(self, action):
+        # Calculate totals
+        dealers_total = 0
+        players_total = 0
         
-        # Determine the winner
-        player_hand_value = self.get_hand_value(self.deck_state[:, 2])
-        dealer_hand_value = self.get_hand_value(self.deck_state[:, 2], dealer=True)
+        for dcard in self.dealers_hand:
+            dealers_total += dcard.value
+        for pcard in self.players_hand:
+            players_total += pcard.value
 
-        if player_hand_value > 21 or (dealer_hand_value <= 21 and dealer_hand_value >= player_hand_value):
-            reward = -1  # Player loses
-        elif dealer_hand_value > 21 or player_hand_value > dealer_hand_value:
-            reward = 1  # Player wins
-        else:
-            reward = 0  # It's a draw
+        # Action 0: Stand, Action 1: Hit
+        if action == 0:
+            # Player chooses to stand, let the dealer play
+            while dealers_total < 17:  # Dealer hits until reaching 17
+                dealer_card = self.draw_card(self.deck,2)
+                if dealer_card is not None:
+                    dealers_total += dealer_card.value
+                    self.deck_state = self.deck_to_2d_array(self.deck)
+            
+            # Determine the winner
 
-        done = True  # End the episode
-
-    elif action == 1:
-        # Player chooses to hit
-        player_card = self.draw_card(self.deck)
-        if player_card is not None:
-            player_card.hand = 1
-            self.deck_state = self.deck_to_2d_array(self.deck)
-
-            # Check if player busts
-            player_hand_value = self.get_hand_value(self.deck_state[:, 2])
-            if player_hand_value > 21:
-                reward = -1
-                done = True  # End the episode
+            if players_total > 21 or (dealers_total <= 21 and dealers_total >= players_total):
+                reward = -1  # Player loses
+            elif dealers_total > 21 or players_total > dealers_total:
+                reward = 1  # Player wins
             else:
-                reward = 0  # Continue the episode
-                done = False
+                reward = 0  # It's a draw
 
-    return self.deck_state, reward, done
+            done = True  # End the episode
+
+        elif action == 1:
+            # Player chooses to hit
+            player_card = self.draw_card(self.deck,1)
+            if player_card is not None:
+                players_total += player_card.value
+                self.deck_state = self.deck_to_2d_array(self.deck)
+
+                # Check if player busts
+                if players_total> 21:
+                    reward = -1
+                    done = True  # End the episode
+                else:
+                    reward = 0  # Continue the episode
+                    done = False
+
+        return self.deck_state, reward, done
 
 # Hyperparameters
 state_size = 52 * 5  # Corrected state size based on the 2D array representation of card objects
