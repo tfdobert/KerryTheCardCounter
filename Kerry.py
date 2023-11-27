@@ -112,10 +112,13 @@ class BlackjackEnvironment:
             # Determine the winner
             if players_total > 21 or (dealers_total <= 21 and dealers_total >= players_total):
                 reward = -1  # Player loses
+                print("BOOOO!! Kerry loses, comeon Kerry you can do better!")
             elif dealers_total > 21 or players_total > dealers_total:
                 reward = 1  # Player wins
+                print("Thataboy Kerry!! Winner!!!")
             else:
                 reward = 0  # It's a draw
+                print("Stalemate, boring.")
 
             done = not any(card.played == 0 for card in self.deck)  # End the episode if no more cards can be drawn
 
@@ -130,14 +133,18 @@ class BlackjackEnvironment:
                 # Check if player busts
                 if players_total > 21:
                     reward = -1
+                    print("Oh no!! Kerry Busts! LOSER!!")
                     done = not any(card.played == 0 for card in self.deck)  # End the episode if no more cards can be drawn
                 else:
                     reward = 0  # Continue the episode
                     done = False
             else:
-                reward = -1  # No more cards to draw
+                reward = 0  # No more cards to draw
                 done = True
-
+        
+        self.dealers_hand = []
+        self.players_hand = []
+        self.reset_hands()
         return self.deck_state, reward, done
     
 
@@ -186,7 +193,7 @@ env = BlackjackEnvironment()
 agent = BlackjackAgent(state_size, action_size)
 
 # Training loop
-episodes = 1000
+episodes = 10000
 for episode in range(episodes):
     state = env.reset()
 
