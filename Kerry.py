@@ -1,6 +1,5 @@
-import tensorflow as tf
 import numpy as np
-
+import tensorflow as tf
 # Define the Blackjack environment
 
 class BlackjackEnvironment:
@@ -9,7 +8,7 @@ class BlackjackEnvironment:
         def __init__(self, card_id, value, face_value, hand, suit):
             self.id = card_id
             self.played = 0  # 0 = false
-            self.value = value  # actual numerical value of the card (face cards have 11)
+            self.value = value  # actual numerical value of the card (face cards have 10)
             self.face_value = face_value  # -1 = jack -2 = queen -3 = king -4 = ace 
             self.hand = hand  #  0 for none, 1 for Kerry 2 for dealer
             self.suit = suit  # 0 = hearts 1 = diamonds 2 = clubs 3 = spades
@@ -70,19 +69,26 @@ class BlackjackEnvironment:
             array[i] = [card.id, card.played, card.value, card.face_value, card.hand, card.suit]
         return array
 
+    # Between games no one should have any cards in their hand. This function ensures that
+    def reset_hands(self):
+        for card in self.deck:
+            card.hand = 0
+        
+
     def draw_card(self, deck, player):
         undealt_cards = [card for card in deck if not card.played]
         if not undealt_cards:
-            # TODO: End episode here
-            print("No more cards to draw.")
-            return None
-        
-        drawn_card = np.random.choice(undealt_cards)
-        drawn_card.played = 1
-        drawn_card.hand = player
-        return drawn_card
+            return None # No more cards to draw
+        else:
+            drawn_card = np.random.choice(undealt_cards)
+            drawn_card.played = 1
+            drawn_card.hand = player
+            return drawn_card
 
     def step(self, action):
+        done = False
+        reward = 0
+
         # Calculate totals
         dealers_total = 0
         players_total = 0
@@ -96,13 +102,14 @@ class BlackjackEnvironment:
         if action == 0:
             # Player chooses to stand, let the dealer play
             while dealers_total < 17:  # Dealer hits until reaching 17
-                dealer_card = self.draw_card(self.deck,2)
-                if dealer_card is not None:
-                    dealers_total += dealer_card.value
-                    self.deck_state = self.deck_to_2d_array(self.deck)
+                dealer_card = self.draw_card(self.deck, 2)
+                if dealer_card == None:
+                    break
+                self.dealers_hand.append(dealer_card)
+                dealers_total += dealer_card.value
+                self.deck_state = self.deck_to_2d_array(self.deck)
             
             # Determine the winner
-
             if players_total > 21 or (dealers_total <= 21 and dealers_total >= players_total):
                 reward = -1  # Player loses
             elif dealers_total > 21 or players_total > dealers_total:
@@ -110,99 +117,96 @@ class BlackjackEnvironment:
             else:
                 reward = 0  # It's a draw
 
-            done = True  # End the episode
+            done = not any(card.played == 0 for card in self.deck)  # End the episode if no more cards can be drawn
 
         elif action == 1:
             # Player chooses to hit
-            player_card = self.draw_card(self.deck,1)
-            if player_card is not None:
+            player_card = self.draw_card(self.deck, 1)
+            if player_card != None:
+                self.players_hand.append(player_card)
                 players_total += player_card.value
                 self.deck_state = self.deck_to_2d_array(self.deck)
 
                 # Check if player busts
-                if players_total> 21:
+                if players_total > 21:
                     reward = -1
-                    done = True  # End the episode
+                    done = not any(card.played == 0 for card in self.deck)  # End the episode if no more cards can be drawn
                 else:
                     reward = 0  # Continue the episode
                     done = False
+            else:
+                reward = -1  # No more cards to draw
+                done = True
 
         return self.deck_state, reward, done
+    
 
-# Hyperparameters
-state_size = 52 * 5  # Corrected state size based on the 2D array representation of card objects
-action_size = 2  # 0 for 'stand', 1 for 'hit'
-learning_rate = 0.001
-discount_factor = 0.99
-epsilon_initial = 1.0
-epsilon_decay = 0.999
-epsilon_min = 0.01
-batch_size = 32
-num_episodes = 10000
-
-# Our Network
-class QNetwork(tf.keras.Model):
+class BlackjackAgent:
     def __init__(self, state_size, action_size):
-        super(QNetwork, self).__init__()
-        self.dense1 = tf.keras.layers.Dense(64, activation='relu', input_shape=(state_size,))
-        self.dense2 = tf.keras.layers.Dense(32, activation='relu')
-        self.dense3 = tf.keras.layers.Dense(action_size)
+        self.state_size = state_size
+        self.action_size = action_size
+        self.model = self.build_model()
 
-    def call(self, state):
-        x = self.dense1(state)
-        x = self.dense2(x)
-        return self.dense3(x)
+    def build_model(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Flatten(input_shape=(self.state_size,)),
+            tf.keras.layers.Dense(64, activation='relu'),
+            tf.keras.layers.Dense(self.action_size, activation='linear')
+        ])
+        model.compile(optimizer='adam', loss='mse')
+        return model
 
-# Initialize environment network
+    def select_action(self, state):
+        # Use epsilon-greedy policy for exploration
+        epsilon = 0.1
+        if np.random.rand() <= epsilon:
+            return np.random.choice(self.action_size)
+        else:
+            q_values = self.model.predict(state)
+            legal_actions = np.arange(self.action_size)
+            return np.random.choice(legal_actions[q_values[0, legal_actions] == np.max(q_values[0, legal_actions])])
+
+    def train(self, state, action, reward, next_state, done):
+        target = reward
+        if not done:
+            next_q_values = self.model.predict(next_state)
+            target = reward + 0.95 * np.max(next_q_values)
+
+        target_f = self.model.predict(state)
+        target_f[0][action] = target
+
+        self.model.fit(state, target_f, epochs=1, verbose=0)
+
+# Assuming each card is represented by a 1D vector of length 6
+state_size = 52 * 6
+action_size = 2  # Stand and Hit
+
+# Initialize the environment and agent
 env = BlackjackEnvironment()
-model = QNetwork(state_size, action_size)
-optimizer = tf.keras.optimizers.Adam(learning_rate)
-huber_loss = tf.keras.losses.Huber()
+agent = BlackjackAgent(state_size, action_size)
 
 # Training loop
-epsilon = epsilon_initial
-
-for episode in range(num_episodes):
+episodes = 1000
+for episode in range(episodes):
     state = env.reset()
+
     total_reward = 0
+    done = False
+    while not done:
+        # Reshape the state to match the expected input shape
+        state_flat = state.flatten()
+        state_flat = np.reshape(state_flat, (1, state_size))
 
-    with tf.GradientTape() as tape:
-        for time in range(1000): 
-            # Epsilon-greedy policy for action selection
-            if np.random.rand() <= epsilon:
-                action = np.random.choice(action_size)
-            else:
-                flat_state = state.flatten()  # Flatten the 2D array before feeding it to the model
-                q_values = model(np.reshape(flat_state, [1, state_size]), training=True)
-                action = np.argmax(q_values[0])
+        action = agent.select_action(state_flat)
+        next_state, reward, done = env.step(action)
 
-            next_state, reward, done = env.step(action)
-            next_state = np.reshape(next_state, [1, state_size])
+        # Reshape the next_state for training
+        next_state_flat = next_state.flatten()
+        next_state_flat = np.reshape(next_state_flat, (1, state_size))
 
-            flat_state = state.flatten()  # Flatten the 2D array for the current state
-            next_state_with_deck = np.concatenate([next_state, np.reshape(env.deck_state, [1, state_size])], axis=1)
+        agent.train(state_flat, action, reward, next_state_flat, done)
+        total_reward += reward
+        state = next_state
 
-            total_reward += reward
-
-            target = reward + discount_factor * np.max(model(next_state_with_deck, training=True)[0])
-            with tape.stop_recording():
-                q_values = model(np.reshape(flat_state, [1, state_size]), training=True)
-                loss = huber_loss(target, q_values[0][action])
-
-            grads = tape.gradient(loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
-            state = next_state
-
-            if done:
-                break
-
-    # Decay epsilon
-    epsilon = max(epsilon * epsilon_decay, epsilon_min)
-
-    # Print results
     if episode % 100 == 0:
-        print(f"Episode: {episode}, Total Reward: {total_reward}")
-
-# Save the trained model if needed
-model.save("blackjack_model")
+        print("Episode {}: Total Reward: {}".format(episode, total_reward))
